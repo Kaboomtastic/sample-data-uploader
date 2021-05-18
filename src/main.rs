@@ -16,7 +16,44 @@ use std::time;
 use futures::executor::block_on;
 use crate::message::*;
 use crate::samples::*;
-use serde_urlencoded::*;
+
+async fn clear_samples(url: &str, keys: Vec<Vec<u8>>) {
+    let mut done = false;
+    let client = reqwest::Client::new();
+
+    while !done {
+        match client.post(url).json(&keys).send().await {
+            Ok(o) => {
+                match o.json::<Message>().await {
+                    Ok(r) => {
+                        match r {
+                            Message::ErrorMessage(s) => {
+                                match s.as_str() {
+                                    "Samples Removed" => {
+                                        done = true;
+                                    },
+                                    _ => {
+                                        eprintln!("Unexpected message {}", s);
+                                    }
+                                }
+                            },
+                            _ => {
+                                eprintln!("Unexpected response type {:?}", r);
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("{}", e);
+                    }
+                }
+                println!("Pulse upload ok")
+            },
+            Err(e) => {
+                eprintln!("{}",e);
+            }
+        }
+    }
+}
 
 async fn get_pulse_samples() {
     match reqwest::get("http://localhost:8080/samples/pulse/100").await {
@@ -39,21 +76,21 @@ async fn get_pulse_samples() {
                                     _ => {}
                                 }
                             }
+                            
                             let client = reqwest::Client::new();
                             match client.post("http://localhost:8000/samples/pulse").json(&data).send().await {
                                 Ok(r) => {
-                                    
-                                    match client.post("http://localhost:8080/clear-samples/pulse").json(&keys).send().await {
-                                        Ok(o) => {
-                                            println!("Pulse upload ok")
+                                    match r.status() {
+                                        StatusCode::OK => {
+                                            clear_samples("http://localhost:8080/clear-samples/pulse", keys).await;
                                         },
-                                        Err(e) => {
-                                            println!("{}",e);
+                                        _ => {
+                                            eprintln!("{}", r.status());
                                         }
                                     }
                                 },
                                 Err(e) => {
-                                    println!("{}",e);
+                                    eprintln!("{}",e);
                                 },
                             }
                         }
@@ -62,12 +99,12 @@ async fn get_pulse_samples() {
                     }
                 },
                 Err(e) => {
-                    println!("{:?}", e);
+                    eprintln!("{}", e);
                 }
             }
         },
         Err(e) => {
-            println!("{:?}", e);
+            eprintln!("{}", e);
         }
     }
 }
@@ -81,7 +118,6 @@ async fn get_power_samples_json () {
                         Message::ErrorMessage(e) => {
                             println!("{}",e);
                         },
-                        
                         Message::Samples(samples) => {
                             let mut data: Vec<MeterSample> = Vec::new();
                             let mut keys: Vec<Vec<u8>> = Vec::new();
@@ -98,17 +134,14 @@ async fn get_power_samples_json () {
                             let client = reqwest::Client::new();
                             match client.post("http://localhost:8000/samples/meter").json(&data).send().await {
                                 Ok(r) => {
-                                    println!("Meter upload ok");
-                                    
-                                    match client.post("http://localhost:8080/clear-samples/meter").json(&keys).send().await {
-                                        Ok(o) => {
-                                            println!("Meter upload ok");
+                                    match r.status() {
+                                        StatusCode::OK => {
+                                            clear_samples("http://localhost:8080/clear-samples/meter", keys).await;
                                         },
-                                        Err(e) => {
-                                            println!("{}",e);
+                                        _ => {
+                                            eprintln!("{}", r.status());
                                         }
                                     }
-                                    
                                 },
                                 Err(e) => {
                                     println!("{}",e);
