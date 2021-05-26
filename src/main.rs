@@ -1,5 +1,3 @@
-#![feature(string_remove_matches)]
-
 pub mod message;
 pub mod packet;
 pub mod samples;
