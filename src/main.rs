@@ -14,7 +14,6 @@ use reqwest::*;
 use std::thread;
 use std::time;
 use std::env;
-use futures::executor::block_on;
 use crate::message::*;
 use crate::samples::*;
 
@@ -25,15 +24,16 @@ struct Config {
     delay: u64,
 }
 
-async fn clear_samples(url: &str, keys: Vec<Vec<u8>>) {
+async fn clear_samples(url: &str, keys: Vec<Vec<u8>>, client: &Client) {
     let mut done = false;
-    let client = reqwest::Client::new();
 
     while !done {
         match client.post(url).json(&keys).send().await {
             Ok(o) => {
+                println!("got clear response");
                 match o.json::<Message>().await {
                     Ok(r) => {
+                        println!("clear response deserialized");
                         match r {
                             Message::ErrorMessage(s) => {
                                 match s.as_str() {
@@ -62,9 +62,10 @@ async fn clear_samples(url: &str, keys: Vec<Vec<u8>>) {
     }
 }
 
-async fn get_pulse_samples(config: &Config) {
+async fn get_pulse_samples(config: &Config, client: &Client) {
     let req = format!("{}/samples/pulse/{}", config.dc_url_base, config.num_samples);
-    match reqwest::get(req).await {
+    
+    match client.get(req).send().await {
         Ok(t) => {
             match t.json::<Message>().await {
                 Ok(res) => {
@@ -76,6 +77,7 @@ async fn get_pulse_samples(config: &Config) {
                             let mut data: Vec<PulseSample> = Vec::new();
                             let mut keys: Vec<Vec<u8>> = Vec::new();
                             if samples.len() == 0 {
+                                eprintln!("Error: expected samples but found none");
                                 return
                             }
                             for sample in samples {
@@ -84,18 +86,19 @@ async fn get_pulse_samples(config: &Config) {
                                         data.push(p);
                                         keys.push(sample.0);
                                     }
-                                    _ => {}
+                                    _ => {
+                                        eprintln!("Error: Unexpected sample type");
+                                    }
                                 }
                             }
 
-                            let client = reqwest::Client::new();
                             let req = format!("{}/pulse", config.ingest_url_base);
                             match client.post(req).json(&data).send().await {
                                 Ok(r) => {
                                     match r.status() {
                                         StatusCode::OK => {
                                             let req = format!("{}/clear-samples/pulse", config.dc_url_base);
-                                            clear_samples(&req, keys).await;
+                                            clear_samples(&req, keys, client).await;
                                         },
                                         _ => {
                                             eprintln!("{}", r.status());
@@ -106,8 +109,9 @@ async fn get_pulse_samples(config: &Config) {
                                     eprintln!("{}",e);
                                 },
                             }
-                        }
+                        },
                         _ => {
+                            eprintln!("Error: Unexpected response type");
                         }
                     }
                 },
@@ -122,20 +126,21 @@ async fn get_pulse_samples(config: &Config) {
     }
 }
 
-async fn get_power_samples_json (config: &Config) {
+async fn get_power_samples_json (config: &Config, client: &Client) {
     let req = format!("{}/samples/meter/{}", config.dc_url_base, config.num_samples);
-    match reqwest::get(req).await {
+    match client.get(req).send().await {
         Ok(t) => {
             match t.json::<Message>().await {
                 Ok(res) => {
                     match res {
                         Message::ErrorMessage(e) => {
-                            println!("{}",e);
+                            eprintln!("{}",e);
                         },
                         Message::Samples(samples) => {
                             let mut data: Vec<MeterSample> = Vec::new();
                             let mut keys: Vec<Vec<u8>> = Vec::new();
                             if samples.len() == 0 {
+                                eprintln!("Error: expected samples but found none");
                                 return
                             }
                             for sample in samples {
@@ -144,18 +149,19 @@ async fn get_power_samples_json (config: &Config) {
                                         data.push(p);
                                         keys.push(sample.0);
                                     }
-                                    _ => {}
+                                    _ => {
+                                        eprintln!("Error: Unexpected sample type");
+                                    }
                                 }
                             }
                             
-                            let client = reqwest::Client::new();
                             let req = format!("{}/meter", config.ingest_url_base);
                             match client.post(req).json(&data).send().await {
                                 Ok(r) => {
                                     match r.status() {
                                         StatusCode::OK => {
                                             let req = format!("{}/clear-samples/meter", config.dc_url_base);
-                                            clear_samples(&req, keys).await;
+                                            clear_samples(&req, keys, &client).await;
                                         },
                                         _ => {
                                             eprintln!("{}", r.status());
@@ -163,21 +169,22 @@ async fn get_power_samples_json (config: &Config) {
                                     }
                                 },
                                 Err(e) => {
-                                    println!("{}",e);
+                                    eprintln!("{}",e);
                                 },
                             }
                         }
                         _ => {
+                            eprintln!("Error: Unexpected response type");
                         }
                     }
                 },
                 Err(e) => {
-                    println!("{:?}", e);
+                    eprintln!("{:?}", e);
                 }
             }
         },
         Err(e) => {
-            println!("{:?}", e);
+            eprintln!("{:?}", e);
         }
     }
 }
@@ -249,9 +256,16 @@ async fn main() {
         }
     }
 
+    let client = reqwest::Client::builder().connection_verbose(true)
+    .connect_timeout(time::Duration::from_millis(500))
+    .timeout(time::Duration::from_millis(2000))
+    .pool_idle_timeout(Some(time::Duration::from_secs(10)))
+    .pool_max_idle_per_host(3)
+    .build().unwrap();
     loop {
-        block_on(get_pulse_samples(&config));
-        block_on(get_power_samples_json(&config));
+        println!("starting upload...");
+        get_pulse_samples(&config, &client).await;
+        get_power_samples_json(&config, &client).await;
         thread::sleep(time::Duration::from_millis(config.delay));
     }
 }
