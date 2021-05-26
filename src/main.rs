@@ -28,14 +28,13 @@ async fn clear_samples(url: &str, keys: Vec<Vec<u8>>, client: &Client) {
     while !done {
         match client.post(url).json(&keys).send().await {
             Ok(o) => {
-                println!("got clear response");
                 match o.json::<Message>().await {
                     Ok(r) => {
-                        println!("clear response deserialized");
                         match r {
                             Message::ErrorMessage(s) => {
                                 match s.as_str() {
                                     "Samples Removed" => {
+                                        println!("upload completed successfully");
                                         done = true;
                                     },
                                     _ => {
