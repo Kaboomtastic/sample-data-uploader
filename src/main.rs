@@ -90,7 +90,7 @@ async fn get_pulse_samples(config: &Config, client: &Client) {
                                 }
                             }
 
-                            let req = format!("{}/pulse", config.ingest_url_base);
+                            let req = format!("{}/samples/pulse", config.ingest_url_base);
                             match client.post(req).json(&data).send().await {
                                 Ok(r) => {
                                     match r.status() {
@@ -153,7 +153,7 @@ async fn get_power_samples_json (config: &Config, client: &Client) {
                                 }
                             }
                             
-                            let req = format!("{}/meter", config.ingest_url_base);
+                            let req = format!("{}/samples/meter", config.ingest_url_base);
                             match client.post(req).json(&data).send().await {
                                 Ok(r) => {
                                     match r.status() {
