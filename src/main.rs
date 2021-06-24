@@ -14,12 +14,43 @@ use std::time;
 use std::env;
 use crate::message::*;
 use crate::samples::*;
+use crate::device::*;
 
 struct Config {
     ingest_url_base: String,
     dc_url_base: String,
     num_samples: u16,
     delay: u64,
+}
+
+async fn get_devices(config: &Config, client: &Client) -> Vec<DeviceSummary> {
+    let req = format!("{}/get/devices", config.dc_url_base);
+
+    match client.get(req).send().await {
+        Ok(o) => {
+            match o.json::<Message>().await {
+                Ok(r) => {
+                    match r {
+                        Message::DeviceList(s) => {
+                            s
+                        },
+                        _ => {
+                            eprintln!("Unexpected response type {:?}", r);
+                            Vec::new()
+                        }
+                    }
+                },
+                Err(e) => {
+                    eprintln!("{}", e);
+                    Vec::new()
+                }
+            }
+        },
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            Vec::new()
+        }
+    }
 }
 
 async fn clear_samples(url: &str, keys: Vec<Vec<u8>>, client: &Client) {
@@ -59,10 +90,11 @@ async fn clear_samples(url: &str, keys: Vec<Vec<u8>>, client: &Client) {
     }
 }
 
-async fn get_pulse_samples(config: &Config, client: &Client) {
+async fn get_pulse_samples(config: &Config, client: &Client, address: &[u8; 8]) {
     let req = format!("{}/samples/pulse/{}", config.dc_url_base, config.num_samples);
-    
-    match client.get(req).send().await {
+    let mut addr = Vec::new();
+    addr.extend_from_slice(address);
+    match client.post(req).json(&addr).send().await {
         Ok(t) => {
             match t.json::<Message>().await {
                 Ok(res) => {
@@ -123,9 +155,11 @@ async fn get_pulse_samples(config: &Config, client: &Client) {
     }
 }
 
-async fn get_power_samples_json (config: &Config, client: &Client) {
+async fn get_power_samples_json (config: &Config, client: &Client, address: &[u8; 8]) {
     let req = format!("{}/samples/meter/{}", config.dc_url_base, config.num_samples);
-    match client.get(req).send().await {
+    let mut addr = Vec::new();
+    addr.extend_from_slice(address);
+    match client.post(req).json(&addr).send().await {
         Ok(t) => {
             match t.json::<Message>().await {
                 Ok(res) => {
@@ -260,9 +294,28 @@ async fn main() {
     .pool_max_idle_per_host(3)
     .build().unwrap();
     loop {
+        let device_list = get_devices(&config, &client).await;
+
+        let mut b_futures = Vec::new();
+        let mut m_futures = Vec::new();
+        device_list.iter().for_each(|x| match x.device_type {
+            DeviceTypes::Bridge => {
+                b_futures.push(get_pulse_samples(&config, &client, &x.address));
+            },
+            DeviceTypes::PowerMeter => {
+                m_futures.push(get_power_samples_json(&config, &client, &x.address));
+            },
+            _ => {},
+        });
         println!("starting upload...");
-        get_pulse_samples(&config, &client).await;
-        get_power_samples_json(&config, &client).await;
+        
+        for future in b_futures {
+            future.await;
+        }
+        for future in m_futures {
+            future.await;
+        }
+        
         thread::sleep(time::Duration::from_millis(config.delay));
     }
 }
