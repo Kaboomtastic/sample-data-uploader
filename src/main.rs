@@ -15,6 +15,7 @@ use std::env;
 use crate::message::*;
 use crate::samples::*;
 use crate::device::*;
+use futures::future::join_all;
 
 struct Config {
     ingest_url_base: String,
@@ -121,6 +122,7 @@ async fn get_pulse_samples(config: &Config, client: &Client, address: &[u8; 8]) 
                                 }
                             }
 
+                            println!("{:?} {}", address, keys.len());
                             let req = format!("{}/samples/pulse", config.ingest_url_base);
                             match client.post(req).json(&data).send().await {
                                 Ok(r) => {
@@ -185,7 +187,7 @@ async fn get_power_samples_json (config: &Config, client: &Client, address: &[u8
                                     }
                                 }
                             }
-                            
+
                             let req = format!("{}/samples/meter", config.ingest_url_base);
                             match client.post(req).json(&data).send().await {
                                 Ok(r) => {
@@ -220,10 +222,75 @@ async fn get_power_samples_json (config: &Config, client: &Client, address: &[u8
     }
 }
 
+async fn get_bridge_samples(config: &Config, client: &Client, address: &[u8; 8]) {
+    let req = format!("{}/samples/bridge/{}", config.dc_url_base, config.num_samples);
+    let mut addr = Vec::new();
+    addr.extend_from_slice(address);
+    match client.post(req).json(&addr).send().await {
+        Ok(t) => {
+            match t.json::<Message>().await {
+                Ok(res) => {
+                    match res {
+                        Message::ErrorMessage(e) => {
+                            eprintln!("{}",e);
+                        },
+                        Message::Samples(samples) => {
+                            let mut data: Vec<BridgeSample> = Vec::new();
+                            let mut keys: Vec<Vec<u8>> = Vec::new();
+                            if samples.len() == 0 {
+                                eprintln!("Error: expected samples but found none");
+                                return
+                            }
+                            for sample in samples {
+                                match sample.1 {
+                                    Sample::Bridge(p) => {
+                                        data.push(p);
+                                        keys.push(sample.0);
+                                    }
+                                    _ => {
+                                        eprintln!("Error: Unexpected sample type");
+                                    }
+                                }
+                            }
+
+                            let req = format!("{}/samples/bridge", config.ingest_url_base);
+                            match client.post(req).json(&data).send().await {
+                                Ok(r) => {
+                                    match r.status() {
+                                        StatusCode::OK => {
+                                            let req = format!("{}/clear-samples/bridge", config.dc_url_base);
+                                            clear_samples(&req, keys, &client).await;
+                                        },
+                                        _ => {
+                                            eprintln!("{}", r.status());
+                                        }
+                                    }
+                                },
+                                Err(e) => {
+                                    eprintln!("{}",e);
+                                },
+                            }
+                        }
+                        _ => {
+                            eprintln!("Error: Unexpected response type");
+                        }
+                    }
+                },
+                Err(e) => {
+                    eprintln!("{:?}", e);
+                }
+            }
+        },
+        Err(e) => {
+            eprintln!("{:?}", e);
+        }
+    }
+}
+
 
 #[tokio::main]
 async fn main() {
-    
+
     let mut config = Config {
         ingest_url_base: "".to_string(),
         dc_url_base: "".to_string(),
@@ -296,11 +363,13 @@ async fn main() {
     loop {
         let device_list = get_devices(&config, &client).await;
 
-        let mut b_futures = Vec::new();
+        let mut p_futures = Vec::new();
         let mut m_futures = Vec::new();
+        let mut b_futures = Vec::new();
         device_list.iter().for_each(|x| match x.device_type {
             DeviceTypes::Bridge => {
-                b_futures.push(get_pulse_samples(&config, &client, &x.address));
+                p_futures.push(get_pulse_samples(&config, &client, &x.address));
+                b_futures.push(get_bridge_samples(&config, &client, &x.address));
             },
             DeviceTypes::PowerMeter => {
                 m_futures.push(get_power_samples_json(&config, &client, &x.address));
@@ -308,14 +377,11 @@ async fn main() {
             _ => {},
         });
         println!("starting upload...");
-        
-        for future in b_futures {
-            future.await;
-        }
-        for future in m_futures {
-            future.await;
-        }
-        
+
+        join_all(p_futures).await;
+        join_all(b_futures).await;
+        join_all(m_futures).await;
+
         thread::sleep(time::Duration::from_millis(config.delay));
     }
 }
