@@ -317,19 +317,6 @@ impl DeviceSample for BridgeSample {
             }
             _ => {}
         }
-        let mut write = false;
-        match sent_modbus.function {
-            FunctionTypes::ReadCoilStatus
-            | FunctionTypes::ReadHoldingRegisters
-            | FunctionTypes::ReadInputRegisters
-            | FunctionTypes::ReadInputStatus => write = false,
-            FunctionTypes::WriteSingleCoil
-            | FunctionTypes::WriteSingleRegister
-            | FunctionTypes::WriteMultipleCoils
-            | FunctionTypes::WriteMultipleRegisters => write = true,
-            _ => {}
-        }
-        let data_type = sent_modbus.data_type;
 
         BridgeSample {
             timestamp: time_as_millis(timestamp),
