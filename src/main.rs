@@ -122,7 +122,7 @@ async fn get_pulse_samples(config: &Config, client: &Client, address: &[u8; 8]) 
                                 }
                             }
 
-                            println!("{:?} {}", address, keys.len());
+                            println!("got {} pulse samples for {:x?}", keys.len(), address);
                             let req = format!("{}/samples/pulse", config.ingest_url_base);
                             match client.post(req).json(&data).send().await {
                                 Ok(r) => {
