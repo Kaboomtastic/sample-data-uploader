@@ -1,0 +1,11 @@
+name: sample-data-uploader
+id: ari:cloud:compass:537e1a54-19d1-49a2-a296-2f24f5828328:component/7ae6a9c6-ec3a-4399-9a71-68576d321bdc/5219c5b1-32cb-4143-b405-97334e88c49f
+description: null
+fields:
+  tier: 4
+links:
+  - type: REPOSITORY
+    name: null
+    url: https://github.com/Bractlet/sample-data-uploader
+relationships:
+  DEPENDS_ON: []
