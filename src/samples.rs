@@ -46,10 +46,10 @@ pub struct MeterSample {
 pub struct BridgeSample {
     pub timestamp: u128,
     pub hardware_id: [u8; 8],
-    pub write: bool,
     pub start_address: u16,
-    pub datatype: modbus::DataTypes,
+    pub function: modbus::FunctionTypes,
     pub values: Vec<u16>,
+    pub device_address: u8,
 }
 
 #[derive(Clone, Hash, Serialize, Deserialize, PartialEq, Debug)]
@@ -255,10 +255,10 @@ impl DeviceSample for BridgeSample {
         BridgeSample {
             timestamp: time_as_millis(UNIX_EPOCH),
             hardware_id: [0; 8],
-            write: false,
             start_address: 0,
-            datatype: modbus::DataTypes::None,
+            function: modbus::FunctionTypes::None,
             values: Vec::new(),
+            device_address: 0,
         }
     }
     fn new(sent: Packet, received: Packet) -> Self {
@@ -317,27 +317,14 @@ impl DeviceSample for BridgeSample {
             }
             _ => {}
         }
-        let mut write = false;
-        match sent_modbus.function {
-            FunctionTypes::ReadCoilStatus
-            | FunctionTypes::ReadHoldingRegisters
-            | FunctionTypes::ReadInputRegisters
-            | FunctionTypes::ReadInputStatus => write = false,
-            FunctionTypes::WriteSingleCoil
-            | FunctionTypes::WriteSingleRegister
-            | FunctionTypes::WriteMultipleCoils
-            | FunctionTypes::WriteMultipleRegisters => write = true,
-            _ => {}
-        }
-        let data_type = sent_modbus.data_type;
 
         BridgeSample {
             timestamp: time_as_millis(timestamp),
             hardware_id: hardware_id,
-            write: write,
             start_address: sent_modbus.start_address,
-            datatype: data_type,
+            function: sent_modbus.function,
             values: data_points,
+            device_address: sent_modbus.address,
         }
     }
 
@@ -346,10 +333,10 @@ impl DeviceSample for BridgeSample {
         let timestamp = self.timestamp;
         vec.extend_from_slice(&timestamp.to_ne_bytes());
         vec.extend_from_slice(&self.hardware_id);
-        vec.push(self.write as u8);
+        vec.push(self.device_address);
         vec.push((self.start_address >> 8) as u8);
         vec.push((self.start_address & 0x0FF) as u8);
-        vec.push(self.datatype.clone() as u8);
+        vec.push(self.function.clone() as u8);
         for v in self.values.clone() {
             vec.push((v >> 8) as u8);
             vec.push((v & 0x0FF) as u8);
@@ -372,11 +359,10 @@ impl DeviceSample for BridgeSample {
         for i in 0..8 {
             hardware_id[i] = as_vec.remove(0);
         }
-
-        let write = as_vec.remove(0) != 0;
+        let device_address = as_vec.remove(0);
         let mut start_address = (as_vec.remove(0) as u16) << 8;
         start_address |= as_vec.remove(0) as u16;
-        let datatype = DataTypes::new(as_vec.remove(0));
+        let function = FunctionTypes::new(as_vec.remove(0));
 
         let mut values = Vec::new();
         while as_vec.is_empty() == false {
@@ -388,10 +374,10 @@ impl DeviceSample for BridgeSample {
         BridgeSample {
             timestamp: time_as_millis,
             hardware_id: hardware_id,
-            write: write,
             start_address: start_address,
-            datatype: datatype,
+            function: function,
             values: values,
+            device_address: device_address,
         }
     }
 }

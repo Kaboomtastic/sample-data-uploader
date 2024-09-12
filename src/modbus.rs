@@ -1,4 +1,4 @@
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
 pub enum FunctionTypes {
     ReadCoilStatus = 0x01,
     ReadInputStatus = 0x02,
@@ -9,6 +9,23 @@ pub enum FunctionTypes {
     WriteMultipleCoils = 0x15,
     WriteMultipleRegisters = 0x16,
     None,
+}
+
+impl FunctionTypes {
+    pub fn new(v: u8) -> Self {
+        use FunctionTypes::*;
+        match v {
+            0x01 => ReadCoilStatus,
+            0x02 => ReadInputStatus,
+            0x03 => ReadHoldingRegisters,
+            0x04 => ReadInputRegisters,
+            0x05 => WriteSingleCoil,
+            0x06 => WriteSingleRegister,
+            0x15 => WriteMultipleCoils,
+            0x16 => WriteMultipleRegisters,
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq)]
